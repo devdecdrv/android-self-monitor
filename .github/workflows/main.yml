@@ -32,24 +32,18 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build Release APK
-        run: ./gradlew assembleRelease 2>&1
-        continue-on-error: true
-
-      - name: Show Kotlin errors
-        run: find . -path "*/build/reports*" -name "*.txt" -exec cat {} \; 2>/dev/null; find . -name "*.xml" -path "*/reports/problems*" -exec cat {} \; 2>/dev/null
+        run: ./gradlew assembleRelease
 
       - name: Find and rename APK
         run: |
           mkdir -p artifacts
           find app/build/outputs/ -name "*.apk" -exec cp {} artifacts/DecMonitor.apk \;
-        continue-on-error: true
 
       - name: Upload APK as artifact
         uses: actions/upload-artifact@v4
         with:
           name: DecMonitor-APK
           path: artifacts/DecMonitor.apk
-        continue-on-error: true
 
       - name: Get version tag
         id: version
@@ -64,4 +58,3 @@ jobs:
           files: artifacts/DecMonitor.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: true
