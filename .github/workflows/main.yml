@@ -32,7 +32,7 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build Release APK
-        run: ./gradlew assembleRelease
+        run: ./gradlew assembleRelease --stacktrace 2>&1 | tail -200
 
       - name: Find and rename APK
         run: |
