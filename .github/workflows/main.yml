@@ -32,16 +32,15 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build Release APK
-        run: ./gradlew assembleRelease --stacktrace
+        run: ./gradlew assembleRelease 2>&1
         continue-on-error: true
 
-      - name: Print full log
-        run: cat /home/runner/work/android-self-monitor/android-self-monitor/app/build/reports/logs/ 2>/dev/null || ./gradlew assembleRelease 2>&1
+      - name: Show Kotlin errors
+        run: find . -path "*/build/reports*" -name "*.txt" -exec cat {} \; 2>/dev/null; find . -name "*.xml" -path "*/reports/problems*" -exec cat {} \; 2>/dev/null
 
       - name: Find and rename APK
         run: |
           mkdir -p artifacts
-          find app/build/outputs/ -name "*.apk" | head -5
           find app/build/outputs/ -name "*.apk" -exec cp {} artifacts/DecMonitor.apk \;
         continue-on-error: true
 
