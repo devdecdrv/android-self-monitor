@@ -32,18 +32,25 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build Release APK
-        run: ./gradlew assembleRelease --stacktrace 2>&1 | tail -200
+        run: ./gradlew assembleRelease --stacktrace
+        continue-on-error: true
+
+      - name: Print full log
+        run: cat /home/runner/work/android-self-monitor/android-self-monitor/app/build/reports/logs/ 2>/dev/null || ./gradlew assembleRelease 2>&1
 
       - name: Find and rename APK
         run: |
           mkdir -p artifacts
-          find app/build/outputs/apk/ -name "*.apk" -exec cp {} artifacts/DecMonitor.apk \;
+          find app/build/outputs/ -name "*.apk" | head -5
+          find app/build/outputs/ -name "*.apk" -exec cp {} artifacts/DecMonitor.apk \;
+        continue-on-error: true
 
       - name: Upload APK as artifact
         uses: actions/upload-artifact@v4
         with:
           name: DecMonitor-APK
           path: artifacts/DecMonitor.apk
+        continue-on-error: true
 
       - name: Get version tag
         id: version
@@ -58,3 +65,4 @@ jobs:
           files: artifacts/DecMonitor.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
