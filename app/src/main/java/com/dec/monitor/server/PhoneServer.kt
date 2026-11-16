@@ -9,7 +9,6 @@ import android.media.ImageReader
 import android.media.projection.MediaProjection
 import android.os.Handler
 import android.os.Looper
-import com.dec.monitor.TelegramBot
 import com.dec.monitor.system.DeviceInfo
 import io.ktor.http.*
 import io.ktor.server.application.*
@@ -49,7 +48,7 @@ object PhoneServer {
                     if (bytes != null) {
                         call.respondBytes(bytes, ContentType.Image.JPEG)
                     } else {
-                        call.respondText("Screenshot unavailable")
+                        call.respondText("Screenshot unavailable — grant MediaProjection first")
                     }
                 }
 
@@ -58,28 +57,28 @@ object PhoneServer {
                     call.respondText(info)
                 }
 
-                // MJPEG live stream
                 get("/stream") {
-                    call.respond(object : OutgoingContent.WriteChannelContent() {
-                        override val contentType = ContentType.parse("multipart/x-mixed-replace; boundary=frame")
-                        override suspend fun writeTo(channel: io.ktor.utils.io.ByteWriteChannel) {
-                            while (true) {
-                                val bytes = captureScreenshot() ?: break
-                                val header = "--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ${bytes.size}\r\n\r\n"
-                                channel.writeFully(header.toByteArray())
-                                channel.writeFully(bytes)
-                                channel.writeFully("\r\n".toByteArray())
-                                channel.flush()
-                                delay(500)
-                            }
-                        }
-                    })
+                    // return latest screenshot as JPEG — refresh client-side
+                    val bytes = captureScreenshot()
+                    if (bytes != null) {
+                        call.respondBytes(bytes, ContentType.Image.JPEG)
+                    } else {
+                        call.respondText("Stream unavailable")
+                    }
                 }
 
                 webSocket("/ws") {
                     wsClients.add(this)
                     try {
-                        for (frame in incoming) { }
+                        // push frames to client
+                        while (true) {
+                            val bytes = captureScreenshot()
+                            if (bytes != null) {
+                                send(Frame.Binary(true, bytes))
+                            }
+                            delay(500)
+                        }
+                    } catch (e: Exception) {
                     } finally {
                         wsClients.remove(this)
                     }
@@ -106,15 +105,15 @@ object PhoneServer {
             }
         }.start(wait = false)
 
-        // WebSocket frame pusher
+        // WebSocket frame pusher for external clients
         CoroutineScope(Dispatchers.IO).launch {
             while (server != null) {
                 if (wsClients.isNotEmpty()) {
                     val bytes = captureScreenshot()
                     if (bytes != null) {
                         val frame = Frame.Binary(true, bytes)
-                        wsClients.forEach {
-                            try { it.send(frame) } catch (e: Exception) { wsClients.remove(it) }
+                        wsClients.forEach { client ->
+                            try { client.send(frame) } catch (e: Exception) { wsClients.remove(client) }
                         }
                     }
                 }
