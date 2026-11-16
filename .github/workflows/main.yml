@@ -45,6 +45,14 @@ jobs:
           convert /tmp/icon_base.png -resize 144x144 app/src/main/res/mipmap-xxhdpi/ic_launcher.png
           convert /tmp/icon_base.png -resize 192x192 app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
 
+      - name: Generate keystore
+        run: |
+          keytool -genkey -v -keystore keystore.jks \
+            -alias decmonitor -keyalg RSA -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=Dec Monitor, OU=Dev, O=Dec, L=IN, S=IN, C=IN" \
+            -storepass decmonitor123 -keypass decmonitor123
+
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
@@ -56,8 +64,8 @@ jobs:
       - name: Grant execute permission to gradlew
         run: chmod +x gradlew
 
-      - name: Build Debug APK
-        run: ./gradlew assembleDebug 2>&1 | tee build_log.txt; exit ${PIPESTATUS[0]}
+      - name: Build Release APK
+        run: ./gradlew assembleRelease 2>&1 | tee build_log.txt; exit ${PIPESTATUS[0]}
 
       - name: Show errors
         if: failure()
