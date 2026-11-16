@@ -1,88 +1,105 @@
 package com.dec.monitor.server
 
-import android.content.Context
 import com.dec.monitor.TelegramBot
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.BufferedReader
-import java.io.File
-import java.io.FileOutputStream
-import java.io.InputStreamReader
-import java.net.URL
+import okhttp3.*
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONObject
 
 object TunnelManager {
 
-    private var tunnelProcess: Process? = null
+    private val client = OkHttpClient()
     var publicUrl: String? = null
 
-    suspend fun start(context: Context) = withContext(Dispatchers.IO) {
+    // Uses localhost.run — no binary needed, pure SSH tunnel via HTTP API
+    // Alternative: use serveo.net
+    suspend fun start() = withContext(Dispatchers.IO) {
         try {
-            // download cloudflared binary if not present
-            val binary = File(context.filesDir, "cloudflared")
-            if (!binary.exists()) {
-                downloadCloudflared(context, binary)
+            // Try localhost.run API
+            val response = client.newCall(
+                Request.Builder()
+                    .url("https://localhost.run/api/tunnels")
+                    .post(
+                        JSONObject().apply {
+                            put("port", 7474)
+                        }.toString().toRequestBody("application/json".toMediaType())
+                    )
+                    .build()
+            ).execute()
+
+            val body = response.body?.string()
+            if (body != null) {
+                val json = JSONObject(body)
+                val url = json.optString("url") ?: json.optJSONArray("tunnels")
+                    ?.getJSONObject(0)?.optString("url")
+
+                if (!url.isNullOrEmpty()) {
+                    publicUrl = url
+                    sendTunnelMessage(url)
+                    return@withContext
+                }
             }
-            binary.setExecutable(true)
+        } catch (e: Exception) { }
 
-            // start tunnel
-            val process = ProcessBuilder(
-                binary.absolutePath,
-                "tunnel", "--url", "http://localhost:7474",
-                "--no-autoupdate"
-            ).redirectErrorStream(true).start()
+        // fallback — try pinggy.io (no binary, websocket-based)
+        try {
+            val response = client.newCall(
+                Request.Builder()
+                    .url("https://free.pinggy.io/api/tunnel?port=7474&type=http")
+                    .get()
+                    .build()
+            ).execute()
 
-            tunnelProcess = process
+            val body = response.body?.string()
+            if (body != null) {
+                val json = JSONObject(body)
+                val url = json.optString("url")
+                if (!url.isNullOrEmpty()) {
+                    publicUrl = url
+                    sendTunnelMessage(url)
+                    return@withContext
+                }
+            }
+        } catch (e: Exception) { }
 
-            // read output to find URL
-            val reader = BufferedReader(InputStreamReader(process.inputStream))
-            var line: String?
-            while (reader.readLine().also { line = it } != null) {
-                val l = line ?: continue
-                if (l.contains("trycloudflare.com") || l.contains("https://")) {
-                    val urlRegex = Regex("https://[a-zA-Z0-9\\-]+\\.trycloudflare\\.com")
-                    val match = urlRegex.find(l)
-                    if (match != null) {
-                        publicUrl = match.value
-                        TelegramBot.sendMessage(
-                            """
+        // final fallback — tell user to use ngrok manually
+        TelegramBot.sendMessage(
+            """
+⚠️ <b>Tunnel auto-start failed</b>
+Server is running locally on port 7474.
+
+To get public URL, install <b>ngrok</b> app on phone:
+1. Install ngrok from Play Store
+2. Run: ngrok http 7474
+3. Copy the https link
+
+Or use <b>Tailscale</b> for private access.
+            """.trimIndent()
+        )
+    }
+
+    private suspend fun sendTunnelMessage(url: String) {
+        TelegramBot.sendMessage(
+            """
 🔗 <b>Dec Monitor Online</b>
 Device: ${android.os.Build.MODEL}
 
-<b>Links:</b>
-📱 Live Stream: $publicUrl/stream
-📸 Screenshot: $publicUrl/screenshot
-🔋 Battery: $publicUrl/battery
-🤖 MCP Status: $publicUrl/mcp/status
+📱 Live Stream: $url/stream
+📸 Screenshot: $url/screenshot  
+🔋 Battery: $url/battery
+🤖 MCP: $url/mcp/status
 
-<b>Add to Claude:</b>
-URL: <code>$publicUrl</code>
+🌐 WebSocket: ${url.replace("https://", "wss://")}/ws
 
-<b>WebSocket:</b>
-<code>${publicUrl?.replace("https://", "wss://")}/ws</code>
-                            """.trimIndent()
-                        )
-                        break
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            TelegramBot.sendMessage("❌ Tunnel failed: ${e.message}")
-        }
-    }
-
-    private fun downloadCloudflared(context: Context, dest: File) {
-        // ARM64 binary for Android
-        val url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64"
-        val connection = URL(url).openConnection()
-        connection.connect()
-        FileOutputStream(dest).use { out ->
-            connection.getInputStream().copyTo(out)
-        }
+<b>Add to Claude MCP:</b>
+<code>$url</code>
+            """.trimIndent()
+        )
     }
 
     fun stop() {
-        tunnelProcess?.destroy()
-        tunnelProcess = null
         publicUrl = null
     }
 }
