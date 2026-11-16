@@ -22,9 +22,7 @@ android {
         }
     }
     buildTypes {
-        debug {
-            minifyEnabled false
-        }
+        debug { minifyEnabled false }
         release {
             minifyEnabled false
             signingConfig signingConfigs.release
@@ -35,6 +33,11 @@ android {
         targetCompatibility JavaVersion.VERSION_1_8
     }
     kotlinOptions { jvmTarget = '1.8' }
+    packaging {
+        resources {
+            excludes += ['META-INF/INDEX.LIST', 'META-INF/io.netty.versions.properties']
+        }
+    }
 }
 
 dependencies {
@@ -42,4 +45,14 @@ dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
+
+    // Ktor server
+    implementation 'io.ktor:ktor-server-core:2.3.7'
+    implementation 'io.ktor:ktor-server-netty:2.3.7'
+    implementation 'io.ktor:ktor-server-content-negotiation:2.3.7'
+    implementation 'io.ktor:ktor-serialization-kotlinx-json:2.3.7'
+    implementation 'io.ktor:ktor-server-websockets:2.3.7'
+
+    // JSON
+    implementation 'org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.2'
 }
