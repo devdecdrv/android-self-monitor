@@ -33,18 +33,12 @@ jobs:
           mkdir -p app/src/main/res/mipmap-xhdpi
           mkdir -p app/src/main/res/mipmap-xxhdpi
           mkdir -p app/src/main/res/mipmap-xxxhdpi
-
           convert -size 512x512 xc:'#1a1a2e' \
-            -fill '#3a3a5c' \
-            -draw "circle 256,256 256,100" \
-            -fill '#1a1a2e' \
-            -draw "circle 256,256 256,140" \
-            -fill '#7c7caa' \
-            -draw "circle 256,256 256,170" \
-            -fill '#1a1a2e' \
-            -draw "circle 256,256 256,200" \
+            -fill '#3a3a5c' -draw "circle 256,256 256,100" \
+            -fill '#1a1a2e' -draw "circle 256,256 256,140" \
+            -fill '#7c7caa' -draw "circle 256,256 256,170" \
+            -fill '#1a1a2e' -draw "circle 256,256 256,200" \
             /tmp/icon_base.png
-
           convert /tmp/icon_base.png -resize 48x48   app/src/main/res/mipmap-mdpi/ic_launcher.png
           convert /tmp/icon_base.png -resize 72x72   app/src/main/res/mipmap-hdpi/ic_launcher.png
           convert /tmp/icon_base.png -resize 96x96   app/src/main/res/mipmap-xhdpi/ic_launcher.png
@@ -63,7 +57,11 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build Debug APK
-        run: ./gradlew assembleDebug --stacktrace 2>&1
+        run: ./gradlew assembleDebug 2>&1 | tee build_log.txt; exit ${PIPESTATUS[0]}
+
+      - name: Show errors
+        if: failure()
+        run: grep -E "^e:|error:|Error" build_log.txt | head -50
 
       - name: Find and rename APK
         run: |
