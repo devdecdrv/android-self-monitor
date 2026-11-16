@@ -15,7 +15,7 @@ android {
     }
     signingConfigs {
         release {
-            storeFile file("../../keystore.jks")
+            storeFile file("${rootProject.projectDir}/keystore.jks")
             storePassword "decmonitor123"
             keyAlias "decmonitor"
             keyPassword "decmonitor123"
