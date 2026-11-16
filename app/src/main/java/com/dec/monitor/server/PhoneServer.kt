@@ -7,11 +7,11 @@ import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.media.ImageReader
 import android.media.projection.MediaProjection
-import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import com.dec.monitor.TelegramBot
 import com.dec.monitor.system.DeviceInfo
+import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.engine.*
 import io.ktor.server.netty.*
@@ -40,50 +40,42 @@ object PhoneServer {
 
             routing {
 
-                // health check
                 get("/") {
                     call.respondText("Dec Monitor Online ✅")
                 }
 
-                // screenshot endpoint
                 get("/screenshot") {
                     val bytes = captureScreenshot()
                     if (bytes != null) {
-                        call.respondBytes(bytes, io.ktor.http.ContentType.Image.JPEG)
+                        call.respondBytes(bytes, ContentType.Image.JPEG)
                     } else {
-                        call.respondText("Screenshot unavailable — grant MediaProjection first")
+                        call.respondText("Screenshot unavailable")
                     }
                 }
 
-                // battery
                 get("/battery") {
                     val info = DeviceInfo.getBatteryInfo(context)
                     call.respondText(info)
                 }
 
-                // location
-                get("/location") {
-                    call.respondText("Use /location command on Telegram bot")
-                }
-
-                // live stream — MJPEG
+                // MJPEG live stream
                 get("/stream") {
-                    call.response.headers.append("Content-Type", "multipart/x-mixed-replace; boundary=frame")
-                    call.response.headers.append("Cache-Control", "no-cache")
-                    val output = call.response.outputStream()
-                    try {
-                        while (true) {
-                            val bytes = captureScreenshot() ?: break
-                            output.write("--frame\r\nContent-Type: image/jpeg\r\n\r\n".toByteArray())
-                            output.write(bytes)
-                            output.write("\r\n".toByteArray())
-                            output.flush()
-                            delay(500) // 2 fps
+                    call.respond(object : OutgoingContent.WriteChannelContent() {
+                        override val contentType = ContentType.parse("multipart/x-mixed-replace; boundary=frame")
+                        override suspend fun writeTo(channel: io.ktor.utils.io.ByteWriteChannel) {
+                            while (true) {
+                                val bytes = captureScreenshot() ?: break
+                                val header = "--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ${bytes.size}\r\n\r\n"
+                                channel.writeFully(header.toByteArray())
+                                channel.writeFully(bytes)
+                                channel.writeFully("\r\n".toByteArray())
+                                channel.flush()
+                                delay(500)
+                            }
                         }
-                    } catch (e: Exception) { }
+                    })
                 }
 
-                // WebSocket live stream
                 webSocket("/ws") {
                     wsClients.add(this)
                     try {
@@ -93,7 +85,6 @@ object PhoneServer {
                     }
                 }
 
-                // MCP-compatible endpoints
                 get("/mcp/screenshot") {
                     val bytes = captureScreenshot()
                     if (bytes != null) {
@@ -110,12 +101,12 @@ object PhoneServer {
                 }
 
                 get("/mcp/status") {
-                    call.respondText("""{"status":"online","version":"1.0","device":"${Build.MODEL}"}""")
+                    call.respondText("""{"status":"online","version":"1.0","device":"${android.os.Build.MODEL}"}""")
                 }
             }
         }.start(wait = false)
 
-        // start WebSocket frame pusher
+        // WebSocket frame pusher
         CoroutineScope(Dispatchers.IO).launch {
             while (server != null) {
                 if (wsClients.isNotEmpty()) {
@@ -142,7 +133,7 @@ object PhoneServer {
         )
     }
 
-    private fun captureScreenshot(): ByteArray? {
+    fun captureScreenshot(): ByteArray? {
         return try {
             val image = imageReader?.acquireLatestImage() ?: return null
             val planes = image.planes
