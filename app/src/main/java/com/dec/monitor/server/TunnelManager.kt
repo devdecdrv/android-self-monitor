@@ -1,11 +1,12 @@
 package com.dec.monitor.server
 
+import android.content.Context
+import android.net.wifi.WifiManager
 import com.dec.monitor.TelegramBot
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.*
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import org.json.JSONObject
 
 object TunnelManager {
@@ -13,90 +14,70 @@ object TunnelManager {
     private val client = OkHttpClient()
     var publicUrl: String? = null
 
-    // Uses localhost.run — no binary needed, pure SSH tunnel via HTTP API
-    // Alternative: use serveo.net
-    suspend fun start() = withContext(Dispatchers.IO) {
+    suspend fun start(context: Context) = withContext(Dispatchers.IO) {
+        val localIp = getLocalIp(context)
+        val localUrl = "http://$localIp:7474"
+
+        // try to get public URL via serveo.net SSH tunnel concept
+        // since we can't run binaries, try a free HTTP tunnel API
+        var tunnelUrl: String? = null
+
         try {
-            // Try localhost.run API
             val response = client.newCall(
                 Request.Builder()
-                    .url("https://localhost.run/api/tunnels")
+                    .url("https://api.tunnelto.dev/expose")
                     .post(
-                        JSONObject().apply {
-                            put("port", 7474)
-                        }.toString().toRequestBody("application/json".toMediaType())
+                        okhttp3.RequestBody.create(
+                            okhttp3.MediaType.parse("application/json"),
+                            """{"local_port":7474}"""
+                        )
                     )
                     .build()
             ).execute()
-
-            val body = response.body?.string()
+            val body = response.body()?.string()
             if (body != null) {
-                val json = JSONObject(body)
-                val url = json.optString("url") ?: json.optJSONArray("tunnels")
-                    ?.getJSONObject(0)?.optString("url")
-
-                if (!url.isNullOrEmpty()) {
-                    publicUrl = url
-                    sendTunnelMessage(url)
-                    return@withContext
-                }
+                tunnelUrl = JSONObject(body).optString("tunnel_url")
             }
         } catch (e: Exception) { }
 
-        // fallback — try pinggy.io (no binary, websocket-based)
-        try {
-            val response = client.newCall(
-                Request.Builder()
-                    .url("https://free.pinggy.io/api/tunnel?port=7474&type=http")
-                    .get()
-                    .build()
-            ).execute()
+        publicUrl = tunnelUrl ?: localUrl
 
-            val body = response.body?.string()
-            if (body != null) {
-                val json = JSONObject(body)
-                val url = json.optString("url")
-                if (!url.isNullOrEmpty()) {
-                    publicUrl = url
-                    sendTunnelMessage(url)
-                    return@withContext
-                }
-            }
-        } catch (e: Exception) { }
+        val streamUrl = "${publicUrl}/stream"
+        val ssUrl = "${publicUrl}/screenshot"
 
-        // final fallback — tell user to use ngrok manually
         TelegramBot.sendMessage(
             """
-⚠️ <b>Tunnel auto-start failed</b>
-Server is running locally on port 7474.
+🔗 <b>Dec Monitor Server Online</b>
+Device: ${android.os.Build.MODEL}
 
-To get public URL, install <b>ngrok</b> app on phone:
-1. Install ngrok from Play Store
-2. Run: ngrok http 7474
-3. Copy the https link
+📡 <b>Local Network:</b>
+📸 Screenshot: <code>$localUrl/screenshot</code>
+🔴 Stream: <code>$localUrl/stream</code>
+🔋 Battery: <code>$localUrl/battery</code>
+🤖 MCP: <code>$localUrl/mcp/status</code>
 
-Or use <b>Tailscale</b> for private access.
+${if (tunnelUrl != null) "🌐 <b>Public URL:</b>\n<code>$tunnelUrl</code>\n\n📸 $tunnelUrl/screenshot\n🔴 $tunnelUrl/stream" else "⚠️ Public tunnel unavailable — use local IP on same WiFi"}
+
+<b>Live View (same WiFi):</b>
+Open in browser → <code>$localUrl/stream</code>
             """.trimIndent()
         )
     }
 
-    private suspend fun sendTunnelMessage(url: String) {
-        TelegramBot.sendMessage(
-            """
-🔗 <b>Dec Monitor Online</b>
-Device: ${android.os.Build.MODEL}
-
-📱 Live Stream: $url/stream
-📸 Screenshot: $url/screenshot  
-🔋 Battery: $url/battery
-🤖 MCP: $url/mcp/status
-
-🌐 WebSocket: ${url.replace("https://", "wss://")}/ws
-
-<b>Add to Claude MCP:</b>
-<code>$url</code>
-            """.trimIndent()
-        )
+    private fun getLocalIp(context: Context): String {
+        return try {
+            val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+            val ip = wifiManager.connectionInfo.ipAddress
+            String.format(
+                "%d.%d.%d.%d",
+                ip and 0xff,
+                ip shr 8 and 0xff,
+                ip shr 16 and 0xff,
+                ip shr 24 and 0xff
+            )
+        } catch (e: Exception) {
+            "localhost"
+        }
     }
 
     fun stop() {
